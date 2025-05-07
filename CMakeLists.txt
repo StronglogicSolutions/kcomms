@@ -19,14 +19,16 @@ add_subdirectory(${THIRD_PARTY_DIR}/sqlitecpp sqlitecpp EXCLUDE_FROM_ALL)
 # nlohmann/json: Header-only library
 add_subdirectory(${THIRD_PARTY_DIR}/nlohmann_json nlohmann_json EXCLUDE_FROM_ALL)
 
-# Signal server executable
+# libsignal-protocol-c
+add_subdirectory(${THIRD_PARTY_DIR}/libsignal_protocol_c libsignal_protocol_c EXCLUDE_FROM_ALL)
+
+# Server executable
 add_executable(signal_server
-  main.cpp
-  server.cpp
-  database.cpp
+  server/main.cpp
+  server/server.cpp
+  server/database.cpp
 )
 
-# Link libraries
 target_link_libraries(signal_server
   PRIVATE
     Boost::asio
@@ -35,10 +37,35 @@ target_link_libraries(signal_server
     nlohmann_json::nlohmann_json
 )
 
-# Include directories (if needed)
 target_include_directories(signal_server
   PRIVATE
     ${THIRD_PARTY_DIR}/boost
     ${THIRD_PARTY_DIR}/sqlitecpp/include
     ${THIRD_PARTY_DIR}/nlohmann_json/include
+)
+
+# Client executable
+add_executable(signal_client
+  client/main.cpp
+  client/client.cpp
+  client/storage.cpp
+)
+
+target_link_libraries(signal_client
+  PRIVATE
+    Boost::asio
+    Boost::system
+    SQLiteCpp
+    nlohmann_json::nlohmann_json
+    ${CMAKE_BINARY_DIR}/libsignal_protocol_c/src/libsignal-protocol-c.a
+    ssl
+    crypto
+)
+
+target_include_directories(signal_client
+  PRIVATE
+    ${THIRD_PARTY_DIR}/boost
+    ${THIRD_PARTY_DIR}/sqlitecpp/include
+    ${THIRD_PARTY_DIR}/nlohmann_json/include
+    ${THIRD_PARTY_DIR}/libsignal_protocol_c/src
 )
