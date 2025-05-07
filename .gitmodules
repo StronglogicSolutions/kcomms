@@ -1,0 +1,6 @@
+[submodule "third_party/sqlitecpp"]
+	path = third_party/sqlitecpp
+	url = https://github.com/SRombauts/SQLiteCpp.git
+[submodule "third_party/nlohmann_json"]
+	path = third_party/nlohmann_json
+	url = https://github.com/nlohmann/json.git
