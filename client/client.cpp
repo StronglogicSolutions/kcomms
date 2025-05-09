@@ -10,7 +10,9 @@ client::client(boost::asio::io_context& io_context, const std::string& host, con
     storage_(db_path),
     username_(username),
     signal_context_(nullptr),
-    store_context_(nullptr)
+    store_context_(nullptr),
+    cli_(*this, username),
+    poll_timer_(io_context)
 {
   initialize_signal();
   tcp::resolver resolver(io_context_);
@@ -19,6 +21,8 @@ client::client(boost::asio::io_context& io_context, const std::string& host, con
     [this](boost::system::error_code ec, const tcp::endpoint&) {
       if (!ec) {
         do_connect();
+        create_group("group:default", "DefaultChat");
+        join_group("group:default");
       } else {
         std::cerr << "Connect failed: " << ec.message() << std::endl;
       }
@@ -37,7 +41,30 @@ client::~client()
 
 void client::start()
 {
+  cli_.start();
+  start_poll();
   do_read();
+}
+
+void client::start_poll()
+{
+  do_poll();
+}
+
+void client::do_poll()
+{
+  json get_messages = {{"type", "get_messages"}};
+  do_write(get_messages);
+
+  poll_timer_.expires_after(std::chrono::seconds(1));
+  poll_timer_.async_wait([this](boost::system::error_code ec) {
+    if (!ec) {
+      do_poll();
+    }
+    else {
+    std::cerr << "Poll error: " << ec.message() << std::endl;
+    }
+  });
 }
 
 void client::log_function(int level, const char* message, size_t length, void* user_data)
@@ -118,12 +145,13 @@ void client::do_write(const json& message)
 
 void client::handle_server_message(const json& message)
 {
+//  std::cout << "Server message:\n" << message.dump() << std::endl;
   std::string type = message.value("type", "");
   if (type == "register_response") {
     if (message.value("status", "") == "success") {
       std::cout << "Registered successfully as " << username_ << std::endl;
     } else {
-      std::cerr << "Registration failed" << std::endl;
+      std::cerr << "Registration failed. Status: " << message.value("status", "") << std::endl;
     }
   } else if (type == "messages_response") {
     for (const auto& msg : message["messages"]) {

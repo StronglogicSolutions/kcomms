@@ -49,6 +49,7 @@ add_executable(signal_client
   client/main.cpp
   client/client.cpp
   client/storage.cpp
+  client/cli.cpp
 )
 
 target_link_libraries(signal_client

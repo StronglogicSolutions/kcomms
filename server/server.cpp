@@ -1,8 +1,9 @@
 #include "server.hpp"
 #include <iostream>
 
-client_session::client_session(tcp::socket socket, database& db)
-  : socket_(std::move(socket)), db_(db)
+client_session::client_session(tcp::socket socket, database& db, server *ptr)
+  : socket_(std::move(socket)), db_(db),
+    server_ptr_(ptr)
 {
 }
 
@@ -34,7 +35,8 @@ void client_session::do_read()
 
 void client_session::handle_message(const json& message)
 {
-  std::string type = message.value("type", "");
+//  std::cout << "Handling message:\n" << message.dump() << std::endl;
+std::string type = message.value("type", "");
   if (type == "register") {
     std::string username = message.value("username", "");
     user_key_bundle bundle;
@@ -62,19 +64,30 @@ void client_session::handle_message(const json& message)
     send_message(response);
   } else if (type == "send_message") {
     std::string recipient = message.value("recipient", "");
+    std::string sender = message.value("sender", "");
+    std::string content = message.value("content", "");
     if (recipient.find("group:") == 0) {
       auto members = db_.get_group_members(recipient);
+      std::cout << "Routing message from " << sender << " to group " << recipient
+                << " with " << members.size() << " members" << std::endl;
       for (const auto& member : members) {
-        if (member != username_) {
-          db_.store_message(member, message);
+        if (member != sender) {
+          std::cout << "Storing message for " << member << std::endl;
+          server_ptr_->store_message(member, message);
         }
       }
+      std::cout << "[" << sender << " to " << recipient << "]: " << content << std::endl;
     } else {
-      db_.store_message(recipient, message);
+      server_ptr_->store_message(recipient, message);
     }
     send_message({{"type", "send_message_response"}, {"status", "success"}});
   } else if (type == "get_messages") {
-    auto messages = db_.get_pending_messages(username_);
+    auto messages = server_ptr_->get_pending_messages(username_);
+
+    if (messages.empty())
+      return;
+
+    std::cout << "Sending " << messages.size() << " messages to " << username_ << std::endl;
     json response = {{"type", "messages_response"}, {"messages", messages}};
     send_message(response);
   } else if (type == "create_group") {
@@ -119,8 +132,25 @@ void server::do_accept()
   acceptor_.async_accept(
     [this](boost::system::error_code ec, tcp::socket socket) {
       if (!ec) {
-        std::make_shared<client_session>(std::move(socket), db_)->start();
+        std::make_shared<client_session>(std::move(socket), db_, this)->start();
       }
       do_accept();
     });
 }
+
+void server::store_message(const std::string& recipient, const json& message)
+{
+  message_queues_[recipient].push_back(message);
+}
+
+std::vector<json> server::get_pending_messages(const std::string& username)
+{
+  auto it = message_queues_.find(username);
+  if (it == message_queues_.end()) {
+    return {};
+  }
+  std::vector<json> messages = std::move(it->second);
+  message_queues_.erase(it);
+  return messages;
+}
+

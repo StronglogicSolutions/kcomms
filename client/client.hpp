@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include "storage.hpp"
+#include "cli.hpp"
 
 using boost::asio::ip::tcp;
 using json = nlohmann::json;
@@ -25,6 +26,8 @@ private:
   void initialize_signal();
   void do_connect();
   void do_read();
+  void start_poll();
+  void do_poll();
   void do_write(const json& message);
   void handle_server_message(const json& message);
   std::string encrypt_message(const std::string& recipient, const std::string& message);
@@ -37,4 +40,6 @@ private:
   boost::asio::streambuf buffer_;
   signal_context* signal_context_;
   signal_protocol_store_context* store_context_;
+  cli             cli_;
+  boost::asio::steady_timer poll_timer_;
 };

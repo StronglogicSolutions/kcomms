@@ -1,0 +1,17 @@
+nlohmann_json
+sqlitecpp
+boost
+**/*/tags
+build
+CMakeFiles
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+.cache
+**/*.db
+libsignal_protocol_c
+signal_client
+signal_server
+tag
+tags
+Makefile

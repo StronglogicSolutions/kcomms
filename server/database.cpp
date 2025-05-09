@@ -1,5 +1,5 @@
 #include "database.hpp"
-#include <stdexcept>
+#include <iostream>
 
 database::database(const std::string& db_path)
   : db_(db_path, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE)
@@ -46,6 +46,7 @@ bool database::register_user(const std::string& username, const user_key_bundle&
     transaction.commit();
     return true;
   } catch (const SQLite::Exception& e) {
+    std::cerr << "SQL Exception: " << e.what() << std::endl;
     return false;
   }
 }
