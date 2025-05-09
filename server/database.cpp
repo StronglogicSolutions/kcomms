@@ -19,7 +19,8 @@ database::database(const std::string& db_path)
            "group_id TEXT,"
            "username TEXT,"
            "FOREIGN KEY(group_id) REFERENCES groups(group_id),"
-           "FOREIGN KEY(username) REFERENCES users(username))");
+           "FOREIGN KEY(username) REFERENCES users(username),"
+           "UNIQUE(group_id, username))");
   db_.exec("CREATE TABLE IF NOT EXISTS messages ("
            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
            "recipient TEXT,"
@@ -29,6 +30,14 @@ database::database(const std::string& db_path)
 bool database::register_user(const std::string& username, const user_key_bundle& key_bundle)
 {
   try {
+    SQLite::Statement query(db_, "SELECT username FROM users WHERE username = ?");
+    query.bind(1, username);
+    if (query.executeStep()) {
+      // User exists
+      std::cout << "User " << username << " already exists" << std::endl;
+      return true;
+    }
+
     SQLite::Transaction transaction(db_);
     SQLite::Statement insert_user(db_, "INSERT INTO users (username, identity_key, signed_pre_key) VALUES (?, ?, ?)");
     insert_user.bind(1, username);
