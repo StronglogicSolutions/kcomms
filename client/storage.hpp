@@ -16,7 +16,7 @@ public:
   storage(const std::string& db_path);
   ~storage();
   void initialize_signal(signal_protocol_store_context* store_ctx);
-  user_key_bundle generate_key_bundle();
+  user_key_bundle generate_key_bundle(signal_context *global_context);
   void save_session(const std::string& recipient, const std::string& session_data);
   std::string load_session(const std::string& recipient);
   void save_group(const std::string& group_id, const std::string& group_name);

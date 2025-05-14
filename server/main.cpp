@@ -4,11 +4,15 @@
 
 int main()
 {
-  try {
+  kiq::log::klogger::init("KComms Server", "trace");
+  try
+  {
     boost::asio::io_context io_context;
     server s(io_context, 12345);
     io_context.run();
-  } catch (const std::exception& e) {
+  }
+  catch (const std::exception& e)
+  {
     std::cerr << "Exception: " << e.what() << std::endl;
   }
   return 0;

@@ -1,10 +1,10 @@
 #include "server.hpp"
-#include <iostream>
 
 client_session::client_session(tcp::socket socket, database& db, server *ptr)
   : socket_(std::move(socket)), db_(db),
     server_ptr_(ptr)
 {
+  klog().d("Initialized client session");
 }
 
 void client_session::start()
@@ -68,15 +68,14 @@ std::string type = message.value("type", "");
     std::string content = message.value("content", "");
     if (recipient.find("group:") == 0) {
       auto members = db_.get_group_members(recipient);
-      std::cout << "Routing message from " << sender << " to group " << recipient
-                << " with " << members.size() << " members" << std::endl;
+      klog().i("Routing message from {} to group {} with {} members", sender, recipient, members.size());
       for (const auto& member : members) {
         if (member != sender) {
-          std::cout << "Storing message for " << member << std::endl;
+          klog().d("Storing message for {}", member);
           server_ptr_->store_message(member, message);
         }
       }
-      std::cout << "[" << sender << " to " << recipient << "]: " << content << std::endl;
+      klog().i("[{} to {}] {}", sender, recipient, content);
     } else {
       server_ptr_->store_message(recipient, message);
     }
@@ -87,7 +86,7 @@ std::string type = message.value("type", "");
     if (messages.empty())
       return;
 
-    std::cout << "Sending " << messages.size() << " messages to " << username_ << std::endl;
+    klog().i("Sending {} messages to {}", messages.size(), username_);
     json response = {{"type", "messages_response"}, {"messages", messages}};
     send_message(response);
   } else if (type == "create_group") {
@@ -115,7 +114,7 @@ void client_session::send_message(const json& message)
   boost::asio::async_write(socket_, boost::asio::buffer(message_str),
     [self](boost::system::error_code ec, std::size_t) {
       if (ec) {
-        std::cerr << "Error sending message: " << ec.message() << std::endl;
+        klog().e("Error sending message: {}", ec.message());
       }
     });
 }
@@ -124,6 +123,7 @@ server::server(boost::asio::io_context& io_context, short port)
   : acceptor_(io_context, tcp::endpoint(tcp::v4(), port)),
     db_("signal_server.db")
 {
+  klog().i("Server starting");
   do_accept();
 }
 

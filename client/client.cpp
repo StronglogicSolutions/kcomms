@@ -1,7 +1,8 @@
 #include "client.hpp"
 #include <iostream>
-#include <stdexcept>
-#include <openssl/rand.h>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <random>
 
 client::client(boost::asio::io_context& io_context, const std::string& host, const std::string& port,
                const std::string& username, const std::string& db_path)
@@ -74,33 +75,128 @@ void client::log_function(int level, const char* message, size_t length, void* u
 
 void client::initialize_signal()
 {
-  signal_context_create(&signal_context_, nullptr);
-  signal_context_set_log_function(signal_context_, log_function);
+  if (signal_context_create(&signal_context_, nullptr) != SG_SUCCESS)
+    throw std::runtime_error("Failed to create signal context");
 
-  signal_crypto_provider crypto_provider = {
-    .random_func = [](uint8_t* data, size_t len, void*) -> int {
-      return RAND_bytes(data, len) == 1 ? SG_SUCCESS : SG_ERR_UNKNOWN;
-    },
-    .hmac_sha256_init_func = nullptr,  // TODO: Implement using OpenSSL
-    .hmac_sha256_update_func = nullptr,
-    .hmac_sha256_final_func = nullptr,
-    .hmac_sha256_cleanup_func = nullptr,
-//    .aes_gcm_encrypt_func = nullptr,
- //   .aes_gcm_decrypt_func = nullptr,
-    .user_data = nullptr
-  };
+  signal_context_set_log_function(signal_context_, log_function);
+  signal_crypto_provider crypto_provider = {};
+//  signal_crypto_provider crypto_provider = {
+    crypto_provider.random_func = [](uint8_t* data, size_t len, void*) -> int {
+      try {
+        std::random_device rd;
+        for (size_t i = 0; i < len; ++i) {
+          data[i] = static_cast<uint8_t>(rd());
+        }
+        return SG_SUCCESS;
+      } catch (const std::exception& e) {
+        std::cerr << "Random device failed: " << e.what() << std::endl;
+        return SG_ERR_UNKNOWN;
+      }
+    };
+    crypto_provider.hmac_sha256_init_func = [](void** hmac_context, const uint8_t* key, size_t key_len, void*) -> int {
+      *hmac_context = HMAC_CTX_new();
+      if (!*hmac_context) return SG_ERR_NOMEM;
+      if (!HMAC_Init_ex(static_cast<HMAC_CTX*>(*hmac_context), key, key_len, EVP_sha256(), nullptr)) {
+        HMAC_CTX_free(static_cast<HMAC_CTX*>(*hmac_context));
+        return SG_ERR_UNKNOWN;
+      }
+      return SG_SUCCESS;
+    };
+    crypto_provider.hmac_sha256_update_func = [](void* hmac_context, const uint8_t* data, size_t data_len, void*) -> int {
+      if (!HMAC_Update(static_cast<HMAC_CTX*>(hmac_context), data, data_len)) {
+        return SG_ERR_UNKNOWN;
+      }
+      return SG_SUCCESS;
+    };
+    crypto_provider.hmac_sha256_final_func = [](void* hmac_context, signal_buffer** output, void*) -> int {
+      unsigned int len = 32; // SHA256 output size
+      uint8_t* digest = static_cast<uint8_t*>(malloc(len));
+      if (!digest) return SG_ERR_NOMEM;
+      if (!HMAC_Final(static_cast<HMAC_CTX*>(hmac_context), digest, &len)) {
+        free(digest);
+        return SG_ERR_UNKNOWN;
+      }
+      *output = signal_buffer_create(digest, len);
+      free(digest);
+      return SG_SUCCESS;
+    };
+    crypto_provider.hmac_sha256_cleanup_func = [](void* hmac_context, void*) {
+      HMAC_CTX_free(static_cast<HMAC_CTX*>(hmac_context));
+    };
+    crypto_provider.encrypt_func = [](signal_buffer** output, int cipher, const uint8_t* key, size_t key_len,
+                       const uint8_t* iv, size_t iv_len, const uint8_t* plaintext, size_t plaintext_len,
+                       void*) -> int {
+      if (cipher != SG_CIPHER_AES_CBC_PKCS5) return SG_ERR_INVAL;
+      EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+      if (!ctx) return SG_ERR_NOMEM;
+
+      int out_len = 0, final_len = 0;
+      size_t ciphertext_len = plaintext_len + EVP_MAX_BLOCK_LENGTH;
+      uint8_t* ciphertext = static_cast<uint8_t*>(malloc(ciphertext_len));
+      if (!ciphertext) {
+        EVP_CIPHER_CTX_free(ctx);
+        return SG_ERR_NOMEM;
+      }
+
+      if (!EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv) ||
+          !EVP_EncryptUpdate(ctx, ciphertext, &out_len, plaintext, plaintext_len) ||
+          !EVP_EncryptFinal_ex(ctx, ciphertext + out_len, &final_len)) {
+        free(ciphertext);
+        EVP_CIPHER_CTX_free(ctx);
+        return SG_ERR_UNKNOWN;
+      }
+
+      *output = signal_buffer_create(ciphertext, out_len + final_len);
+      free(ciphertext);
+      EVP_CIPHER_CTX_free(ctx);
+      return SG_SUCCESS;
+    };
+    crypto_provider.decrypt_func = [](signal_buffer** output, int cipher, const uint8_t* key, size_t key_len,
+                       const uint8_t* iv, size_t iv_len, const uint8_t* ciphertext, size_t ciphertext_len,
+                       void*) -> int {
+      if (cipher != SG_CIPHER_AES_CBC_PKCS5) return SG_ERR_INVAL;
+      EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+      if (!ctx) return SG_ERR_NOMEM;
+
+      int out_len = 0, final_len = 0;
+      uint8_t* plaintext = static_cast<uint8_t*>(malloc(ciphertext_len));
+      if (!plaintext) {
+        EVP_CIPHER_CTX_free(ctx);
+        return SG_ERR_NOMEM;
+      }
+
+      if (!EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv) ||
+          !EVP_DecryptUpdate(ctx, plaintext, &out_len, ciphertext, ciphertext_len) ||
+          !EVP_DecryptFinal_ex(ctx, plaintext + out_len, &final_len)) {
+        free(plaintext);
+        EVP_CIPHER_CTX_free(ctx);
+        return SG_ERR_UNKNOWN;
+      }
+
+      *output = signal_buffer_create(plaintext, out_len + final_len);
+      free(plaintext);
+      EVP_CIPHER_CTX_free(ctx);
+      return SG_SUCCESS;
+    };
+  crypto_provider.user_data = nullptr;
+
+  // Debug: Verify provider
+  if (!crypto_provider.random_func) {
+    std::cerr << "random_func is null before set" << std::endl;
+    throw std::runtime_error("Crypto provider misconfigured");
+  }
+
   signal_context_set_crypto_provider(signal_context_, &crypto_provider);
+
+  std::cout << "Set crypto provider" << std::endl;
 
   signal_protocol_store_context_create(&store_context_, signal_context_);
   storage_.initialize_signal(store_context_);
-
-  // Generate keys (simplified placeholder)
-  // TODO: Use signal_protocol_key_helper_generate_identity_key_pair, etc.
-}
+  }
 
 void client::do_connect()
 {
-  auto key_bundle = storage_.generate_key_bundle();
+  auto key_bundle = storage_.generate_key_bundle(signal_context_);
   json register_message = {
     {"type", "register"},
     {"username", username_},
