@@ -7,7 +7,9 @@
 #include <vector>
 #include <map>
 #include "database.hpp"
+#include "logger.hpp"
 
+using namespace kiq::log;
 using boost::asio::ip::tcp;
 using json = nlohmann::json;
 
