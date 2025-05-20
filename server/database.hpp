@@ -8,13 +8,7 @@
 using json = nlohmann::json;
 
 struct user_key_bundle {
-  std::string identity_key; // Base64-encoded identity public key
-  std::string signed_pre_key; // Base64-encoded signed pre-key public key
-  std::string signed_pre_key_public; // Base64-encoded signed pre-key public key (optional, can remove if redundant)
-  uint32_t signed_pre_key_id; // Signed pre-key ID
-  std::string signed_pre_key_signature; // Base64-encoded signature
-  std::vector<std::string> one_time_pre_keys; // Base64-encoded one-time pre-key public keys
-  uint32_t registration_id; // Registration ID
+  std::string key;
 };
 
 class database {

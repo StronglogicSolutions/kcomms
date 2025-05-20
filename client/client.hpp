@@ -2,12 +2,20 @@
 
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
-#include <signal_protocol.h>
 #include <memory>
 #include <string>
 #include <vector>
-#include "storage.hpp"
 #include "cli.hpp"
+#include <sodium.h>
+
+struct user_key_bundle {
+  std::string key;
+};
+
+struct encrypt_struct_t {
+  std::string cipher_text;
+  std::string nonce;
+};
 
 using boost::asio::ip::tcp;
 using json = nlohmann::json;
@@ -19,7 +27,6 @@ class client : public std::enable_shared_from_this<client> {
 public:
   client (boost::asio::io_context& io_context, const std::string& host, const std::string& port,
           const std::string& username, const std::string& db_path);
-  ~client();
 
   void start();
   void send_message(const std::string& recipient, const std::string& message);
@@ -29,15 +36,15 @@ public:
 private:
   static void log_function(int level, const char* message, size_t length, void* user_data);
 
-  void        initialize_signal();
+  void        init();
   void        do_connect();
   void        do_read();
   void        start_poll();
   void        do_poll();
   void        do_write(json message);
   void        handle_server_message(const json& message);
-  std::string encrypt_message(const std::string& recipient, int device_id, const std::string& message);
-  std::string decrypt_message(const std::string& sender, int device_id, const std::string& ciphertext);
+  encrypt_struct_t encrypt_message(const std::string& recipient, int device_id, const std::string& message);
+  std::string decrypt_message(const std::string& sender, int device_id, const encrypt_struct_t& encrypted);
   void        start_session(const std::string& recipient_id, int device_id, const user_key_bundle& bundle);
   user_key_bundle fetch_key_bundle(const std::string& recipient_id);
 
@@ -45,13 +52,11 @@ private:
 
   boost::asio::io_context&       io_context_;
   tcp::socket                    socket_;
-  storage                        storage_;
   std::string                    host_;
   std::string                    port_;
   std::string                    username_;
   boost::asio::streambuf         buffer_;
-  signal_context*                signal_context_;
-  signal_protocol_store_context* store_context_;
+  unsigned char                  key_[crypto_secretbox_KEYBYTES];
   cli                            cli_;
   boost::asio::steady_timer      poll_timer_;
   user_key_bundle                key_bundle_;

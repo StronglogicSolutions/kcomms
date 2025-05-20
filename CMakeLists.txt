@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(signal_server)
+project(kcomms_server)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,7 +19,6 @@ if(TARGET_OS STREQUAL "Windows")
   set(BOOST_ROOT /usr/local/boost-windows)
   set(SQLITE3_LIBRARY /usr/local/sqlite-windows/lib/libsqlite3.a)
   set(OPENSSL_ROOT_DIR /usr/local/openssl-windows)
-  set(LIBSIGNAL_LIB /usr/local/libsignal-windows/lib/libsignal_protocol.a)
   set(SQLITECPP_INCLUDE_DIR /usr/local/sqlitecpp-windows/include)
   set(SQLITECPP_LIBRARY /usr/local/sqlitecpp-windows/lib/libSQLiteCpp.a)
 elseif(TARGET_OS STREQUAL "Darwin")
@@ -32,12 +31,19 @@ elseif(TARGET_OS STREQUAL "Darwin")
   set(BOOST_ROOT /usr/local/boost-darwin)
   set(SQLITE3_LIBRARY /usr/local/sqlite-darwin/lib/libsqlite3.a)
   set(OPENSSL_ROOT_DIR /usr/local/openssl-darwin)
-  set(LIBSIGNAL_LIB /usr/local/libsignal-darwin/lib/libsignal_protocol.a)
   set(SQLITECPP_INCLUDE_DIR /usr/local/sqlitecpp-darwin/include)
   set(SQLITECPP_LIBRARY /usr/local/sqlitecpp-darwin/lib/libSQLiteCpp.a)
 else()
-  set(LIBSIGNAL_LIB libsignal-protocol-c) # Reference the CMake target
-  #  set(LIBSIGNAL_LIB ${CMAKE_BINARY_DIR}/libsignal_protocol_c/src/libsignal-protocol-c.a)
+
+# Path to libsodium (built in third_party/sodium)
+set(SODIUM_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third_party/sodium")
+set(SODIUM_LIB "${SODIUM_SOURCE_DIR}/src/libsodium/.libs/libsodium.a")
+set(SODIUM_INCLUDE_DIR "${SODIUM_SOURCE_DIR}/src/libsodium/include")
+
+# Verify libsodium library exists
+if(NOT EXISTS ${SODIUM_LIB})
+    message(FATAL_ERROR "libsodium library not found at ${SODIUM_LIB}. Please build libsodium in ${SODIUM_SOURCE_DIR}.")
+endif()
 endif()
 
 # Find OpenSSL
@@ -63,20 +69,17 @@ endif()
 # nlohmann/json: Header-only
 add_subdirectory(${THIRD_PARTY_DIR}/nlohmann_json nlohmann_json EXCLUDE_FROM_ALL)
 
-# libsignal-protocol-c
-add_subdirectory(${THIRD_PARTY_DIR}/libsignal_protocol_c libsignal_protocol_c EXCLUDE_FROM_ALL)
-
 # klogger
 add_subdirectory(${THIRD_PARTY_DIR}/klogger klogger EXCLUDE_FROM_ALL)
 
 # Server executable
-add_executable(signal_server
+add_executable(kcomms_server
   server/main.cpp
   server/server.cpp
   server/database.cpp
 )
 
-target_link_libraries(signal_server
+target_link_libraries(kcomms_server
   PRIVATE
     ${Boost_LIBRARIES}
     SQLiteCpp
@@ -87,7 +90,7 @@ target_link_libraries(signal_server
     #    $<$<PLATFORM_ID:Windows>:ws2_32>
 )
 
-target_include_directories(signal_server
+target_include_directories(kcomms_server
   PRIVATE
     ${THIRD_PARTY_DIR}/boost
     ${THIRD_PARTY_DIR}/sqlitecpp/include
@@ -97,32 +100,29 @@ target_include_directories(signal_server
 )
 
 # Client executable
-add_executable(signal_client
+add_executable(kcomms_client
   client/main.cpp
   client/client.cpp
-  client/storage.cpp
   client/cli.cpp
 )
 
-target_link_libraries(signal_client
+target_link_libraries(kcomms_client
   PRIVATE
     ${Boost_LIBRARIES}
     SQLiteCpp
     nlohmann_json::nlohmann_json
-    #OpenSSL::SSL
-    #OpenSSL::Crypto
-    ${CMAKE_BINARY_DIR}/libsignal_protocol_c/src/libsignal-protocol-c.a
-    ssl
-    crypto
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    ${SODIUM_LIB}
     $<$<PLATFORM_ID:Windows>:ws2_32>
 )
 
-target_include_directories(signal_client
+target_include_directories(kcomms_client
   PRIVATE
     ${THIRD_PARTY_DIR}/boost
     ${THIRD_PARTY_DIR}/sqlitecpp/include
     ${THIRD_PARTY_DIR}/nlohmann_json/include
-    ${THIRD_PARTY_DIR}/libsignal_protocol_c/src
+    ${SODIUM_INCLUDE_DIR}
     ${THIRD_PARTY_DIR}/klogger/src
     $<$<OR:$<PLATFORM_ID:Windows>,$<PLATFORM_ID:Darwin>>:${SQLITECPP_INCLUDE_DIR}>
 )
