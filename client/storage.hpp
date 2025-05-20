@@ -4,11 +4,21 @@
 #include <signal_protocol.h>
 #include <string>
 #include <vector>
+#include <map>
+
+struct session_t {
+  std::string record;
+};
+
 
 struct user_key_bundle {
-  std::string identity_key;
-  std::string signed_pre_key;
-  std::vector<std::string> one_time_pre_keys;
+  std::string identity_key; // Base64-encoded identity public key
+  std::string signed_pre_key; // Base64-encoded signed pre-key public key
+  std::string signed_pre_key_public; // Base64-encoded signed pre-key public key (optional, can remove if redundant)
+  uint32_t signed_pre_key_id; // Signed pre-key ID
+  std::string signed_pre_key_signature; // Base64-encoded signature
+  std::vector<std::string> one_time_pre_keys; // Base64-encoded one-time pre-key public keys
+  uint32_t registration_id; // Registration ID
 };
 
 class storage {
@@ -23,7 +33,7 @@ public:
   std::vector<std::string> get_group_members(const std::string& group_id);
 
   // Signal Protocol callbacks
-  static int identity_key_store_get_identity_key_pair(signal_buffer** ctx, signal_buffer** keyp, void*);
+  static int identity_key_store_get_identity_key_pair(signal_buffer** public_buf, signal_buffer** private_buf, void* user_data);
   static int identity_key_store_get_local_registration_id(void* ctx, uint32_t* idp);
   static int identity_key_store_save_identity(const signal_protocol_address *address, uint8_t *key_data, size_t key_len, void *user_data);
   static int identity_key_store_is_trusted_identity(const signal_protocol_address *address, uint8_t *key_data, size_t key_len, void *user_data);
@@ -39,4 +49,5 @@ public:
 
 private:
   SQLite::Database db_;
+  static std::map<std::string, session_t> sessions_;
 };

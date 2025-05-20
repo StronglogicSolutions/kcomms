@@ -14,11 +14,6 @@ int main(int argc, char* argv[])
     client c(io_context, argv[1], argv[2], argv[3], "client_" + std::string(argv[3]) + ".db");
     c.start();
 
-    // Example commands (for testing)
-    c.send_message("bob", "Hello, Bob!");
-    c.create_group("group:123", "MyGroup");
-    c.join_group("group:123");
-
     io_context.run();
   } catch (const std::exception& e) {
     std::cerr << "Exception: " << e.what() << std::endl;

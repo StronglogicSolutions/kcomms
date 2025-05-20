@@ -3,6 +3,9 @@
 #include "key_helper.h"
 #include "signal_protocol.h"
 #include "curve.h"
+#include "session_pre_key.h"
+
+std::map<std::string, session_t> storage::sessions_ = {};
 
 std::string base64_encode(const uint8_t* data, size_t len)
 {
@@ -19,9 +22,30 @@ std::string base64_encode(const uint8_t* data, size_t len)
   return result;
 }
 
+std::vector<uint8_t> base64_decode(const std::string& input)
+{
+  static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::vector<uint8_t> result;
+  result.reserve(input.size() * 3 / 4);
+
+  for (size_t i = 0; i < input.size(); i += 4) {
+    uint32_t sextet_a = input[i] == '=' ? 0 : base64_chars.find(input[i]);
+    uint32_t sextet_b = input[i + 1] == '=' ? 0 : base64_chars.find(input[i + 1]);
+    uint32_t sextet_c = input[i + 2] == '=' ? 0 : base64_chars.find(input[i + 2]);
+    uint32_t sextet_d = input[i + 3] == '=' ? 0 : base64_chars.find(input[i + 3]);
+
+    uint32_t triplet = (sextet_a << 18) + (sextet_b << 12) + (sextet_c << 6) + sextet_d;
+    result.push_back((triplet >> 16) & 255);
+    if (input[i + 2] != '=') result.push_back((triplet >> 8) & 255);
+    if (input[i + 3] != '=') result.push_back(triplet & 255);
+  }
+  return result;
+}
+
 storage::storage(const std::string& db_path)
   : db_(db_path, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE)
 {
+  db_.exec("PRAGMA cache_size = -20000;"); // Increase cache size (20MB)
   db_.exec("CREATE TABLE IF NOT EXISTS identity_key ("
            "key_pair BLOB,"
            "registration_id INTEGER)");
@@ -38,22 +62,6 @@ storage::storage(const std::string& db_path)
   db_.exec("CREATE TABLE IF NOT EXISTS sessions ("
            "recipient_id TEXT PRIMARY KEY,"
            "session_record BLOB)");
-//  db_.exec("CREATE TABLE IF NOT EXISTS identity_key ("
-//           "id INTEGER PRIMARY KEY,"
-//           "public_key TEXT,"
-//           "private_key TEXT,"
-//           "registration_id INTEGER)");
-//  db_.exec("CREATE TABLE IF NOT EXISTS signed_pre_keys ("
-//           "key_id INTEGER PRIMARY KEY,"
-//           "public_key TEXT,"
-//           "private_key TEXT)");
-//  db_.exec("CREATE TABLE IF NOT EXISTS one_time_pre_keys ("
-//           "key_id INTEGER PRIMARY KEY,"
-//           "public_key TEXT,"
-//           "private_key TEXT)");
-//  db_.exec("CREATE TABLE IF NOT EXISTS sessions ("
-//           "recipient TEXT PRIMARY KEY,"
-//           "session_data TEXT)");
   db_.exec("CREATE TABLE IF NOT EXISTS groups ("
            "group_id TEXT PRIMARY KEY,"
            "group_name TEXT)");
@@ -151,6 +159,7 @@ void storage::initialize_signal(signal_protocol_store_context* store_ctx)
 
 user_key_bundle storage::generate_key_bundle(signal_context* global_context)
 {
+  std::cout << "Received global_context in storage: " << global_context << std::endl;
   user_key_bundle bundle;
 
   // Generate registration ID
@@ -158,6 +167,7 @@ user_key_bundle storage::generate_key_bundle(signal_context* global_context)
   if (signal_protocol_key_helper_generate_registration_id(&registration_id, 0, global_context) != SG_SUCCESS) {
     throw std::runtime_error("Failed to generate registration ID");
   }
+  bundle.registration_id = registration_id;
 
   // Generate identity key pair
   ratchet_identity_key_pair* identity_key_pair = nullptr;
@@ -205,32 +215,84 @@ user_key_bundle storage::generate_key_bundle(signal_context* global_context)
   // Generate signed pre-key
   uint32_t signed_pre_key_id = 1;
   session_signed_pre_key* signed_pre_key = nullptr;
-  if (signal_protocol_key_helper_generate_signed_pre_key(&signed_pre_key, identity_key_pair, signed_pre_key_id, time(nullptr), global_context) != SG_SUCCESS) {
+  signal_buffer* signature_buf = nullptr;
+  ec_key_pair* ec_pair = nullptr;
+  uint64_t timestamp = time(nullptr);
+
+  if (curve_generate_key_pair(global_context, &ec_pair) != SG_SUCCESS) {
     SIGNAL_UNREF(identity_key_pair);
-    throw std::runtime_error("Failed to generate signed pre-key");
+    throw std::runtime_error("Failed to generate key pair for signed pre-key");
   }
+
+  ec_public_key* public_key = ec_key_pair_get_public(ec_pair);
+  if (ec_public_key_serialize(&public_buf, public_key) != SG_SUCCESS) {
+    SIGNAL_UNREF(ec_pair);
+    SIGNAL_UNREF(identity_key_pair);
+    throw std::runtime_error("Failed to serialize signed pre-key public key");
+  }
+
+  // Set public key and signature for bundle
+  bundle.signed_pre_key = base64_encode(signal_buffer_data(public_buf), signal_buffer_len(public_buf));
+  bundle.signed_pre_key_public = bundle.signed_pre_key; // Keep for compatibility, can remove later
+  bundle.signed_pre_key_id = signed_pre_key_id;
+
+  ec_private_key* identity_private_key = ratchet_identity_key_pair_get_private(identity_key_pair);
+  if (curve_calculate_signature(global_context, &signature_buf, identity_private_key,
+                                signal_buffer_data(public_buf), signal_buffer_len(public_buf)) != SG_SUCCESS) {
+    signal_buffer_free(public_buf);
+    SIGNAL_UNREF(ec_pair);
+    SIGNAL_UNREF(identity_key_pair);
+    throw std::runtime_error("Failed to calculate signature for signed pre-key");
+  }
+  bundle.signed_pre_key_signature = base64_encode(signal_buffer_data(signature_buf), signal_buffer_len(signature_buf));
+
+  // Create session_signed_pre_key for storage
+  if (session_signed_pre_key_create(&signed_pre_key, signed_pre_key_id, timestamp, ec_pair,
+                                   signal_buffer_data(signature_buf), signal_buffer_len(signature_buf)) != SG_SUCCESS) {
+    signal_buffer_free(public_buf);
+    signal_buffer_free(signature_buf);
+    SIGNAL_UNREF(ec_pair);
+    SIGNAL_UNREF(identity_key_pair);
+    throw std::runtime_error("Failed to create signed pre-key");
+  }
+
+  // Store signed pre-key in database
   signal_buffer* signed_pre_key_buf = nullptr;
   if (session_signed_pre_key_serialize(&signed_pre_key_buf, signed_pre_key) != SG_SUCCESS) {
+    signal_buffer_free(public_buf);
+    signal_buffer_free(signature_buf);
     SIGNAL_UNREF(signed_pre_key);
+    SIGNAL_UNREF(ec_pair);
     SIGNAL_UNREF(identity_key_pair);
     throw std::runtime_error("Failed to serialize signed pre-key");
   }
-  bundle.signed_pre_key = base64_encode(signal_buffer_data(signed_pre_key_buf), signal_buffer_len(signed_pre_key_buf));
-  try {
+
+  try
+  {
+    std::cout << "Inserting into signed_pre_key the following key_id: " << signed_pre_key_id << std::endl;
+
     SQLite::Statement insert_signed(db_, "INSERT INTO signed_pre_key (key_id, key_pair) VALUES (?, ?)");
     insert_signed.bind(1, static_cast<int64_t>(signed_pre_key_id));
-    insert_signed.bind(2, std::string(reinterpret_cast<char*>(signal_buffer_data(signed_pre_key_buf)), signal_buffer_len(signed_pre_key_buf)));
+    insert_signed.bind(2, std::string(reinterpret_cast<char*>(signal_buffer_data(signed_pre_key_buf)),
+                                     signal_buffer_len(signed_pre_key_buf)));
     insert_signed.exec();
-  } catch (const SQLite::Exception& e) {
+  } catch (const SQLite::Exception& e)
+  {
+    std::cerr << "Failed to insert into signed_pre_key table: " << e.what() << std::endl;
     signal_buffer_free(signed_pre_key_buf);
+    signal_buffer_free(public_buf);
+    signal_buffer_free(signature_buf);
     SIGNAL_UNREF(signed_pre_key);
+    SIGNAL_UNREF(ec_pair);
     SIGNAL_UNREF(identity_key_pair);
     throw std::runtime_error("SQLite error in storing signed pre-key: " + std::string(e.what()));
   }
+
   signal_buffer_free(signed_pre_key_buf);
-  signed_pre_key_buf = nullptr;
+  signal_buffer_free(public_buf);
+  signal_buffer_free(signature_buf);
   SIGNAL_UNREF(signed_pre_key);
-  signed_pre_key = nullptr;
+  // Note: ec_pair is owned by signed_pre_key, so not unreferenced separately
 
   // Generate one-time pre-keys
   signal_protocol_key_helper_pre_key_list_node* pre_keys_head = nullptr;
@@ -249,28 +311,38 @@ user_key_bundle storage::generate_key_bundle(signal_context* global_context)
       throw std::runtime_error("Failed to serialize one-time pre-key");
     }
     bundle.one_time_pre_keys.push_back(base64_encode(signal_buffer_data(pre_key_buf), signal_buffer_len(pre_key_buf)));
+
+    // Store one-time pre-key in database (full session_pre_key)
+    signal_buffer* pre_key_full_buf = nullptr;
+    if (session_pre_key_serialize(&pre_key_full_buf, pre_key) != SG_SUCCESS) {
+      signal_buffer_free(pre_key_buf);
+      signal_protocol_key_helper_key_list_free(pre_keys_head);
+      SIGNAL_UNREF(identity_key_pair);
+      throw std::runtime_error("Failed to serialize one-time pre-key for storage");
+    }
     try {
       SQLite::Statement insert_pre(db_, "INSERT INTO one_time_pre_keys (key_id, key_pair) VALUES (?, ?)");
       insert_pre.bind(1, static_cast<int64_t>(pre_key_id));
-      insert_pre.bind(2, std::string(reinterpret_cast<char*>(signal_buffer_data(pre_key_buf)), signal_buffer_len(pre_key_buf)));
+      insert_pre.bind(2, std::string(reinterpret_cast<char*>(signal_buffer_data(pre_key_full_buf)),
+                                    signal_buffer_len(pre_key_full_buf)));
       insert_pre.exec();
     } catch (const SQLite::Exception& e) {
       signal_buffer_free(pre_key_buf);
+      signal_buffer_free(pre_key_full_buf);
       signal_protocol_key_helper_key_list_free(pre_keys_head);
       SIGNAL_UNREF(identity_key_pair);
       throw std::runtime_error("SQLite error in storing one-time pre-key: " + std::string(e.what()));
     }
     signal_buffer_free(pre_key_buf);
-    pre_key_buf = nullptr;
+    signal_buffer_free(pre_key_full_buf);
     node = signal_protocol_key_helper_key_list_next(node);
   }
 
   // Cleanup
   signal_protocol_key_helper_key_list_free(pre_keys_head);
-  pre_keys_head = nullptr;
   SIGNAL_UNREF(identity_key_pair);
-  identity_key_pair = nullptr;
 
+  std::cout << "Returning bundle with context: " << global_context << std::endl;
   return bundle;
 }
 
@@ -284,6 +356,7 @@ void storage::save_session(const std::string& recipient, const std::string& sess
 
 std::string storage::load_session(const std::string& recipient)
 {
+  std::cout << "Getting session for " << recipient << std::endl;
   SQLite::Statement query(db_, "SELECT session_data FROM sessions WHERE recipient = ?");
   query.bind(1, recipient);
   if (query.executeStep()) {
@@ -312,7 +385,7 @@ std::vector<std::string> storage::get_group_members(const std::string& group_id)
 }
 
 // Signal Protocol callbacks (simplified placeholders)
-int storage::identity_key_store_get_identity_key_pair(signal_buffer** ctx, signal_buffer** keyp, void* user_data)
+int storage::identity_key_store_get_identity_key_pair(signal_buffer** public_buf, signal_buffer** private_buf, void* user_data)
 {
   auto* storage = static_cast<class storage*>(user_data);
   try {
@@ -321,8 +394,18 @@ int storage::identity_key_store_get_identity_key_pair(signal_buffer** ctx, signa
       return SG_ERR_UNKNOWN;
     }
     std::string key_pair = query.getColumn(0).getString();
-    *keyp = signal_buffer_create(reinterpret_cast<const uint8_t*>(key_pair.data()), key_pair.size());
-    *ctx = nullptr; // Unused context
+    *public_buf  = signal_buffer_create(reinterpret_cast<const uint8_t*>(key_pair.data()),      33);
+    *private_buf = signal_buffer_create(reinterpret_cast<const uint8_t*>(key_pair.data()) + 33, 32);
+
+    if (!*public_buf || !*private_buf) {
+      signal_buffer_free(*public_buf);
+      signal_buffer_free(*private_buf);
+      *public_buf  = nullptr;
+      *private_buf = nullptr;
+      std::cerr << "Memory allocation failed for identity key buffers" << std::endl;
+      return SG_ERR_NOMEM;
+    }
+
     return SG_SUCCESS;
   } catch (const SQLite::Exception& e) {
     std::cerr << "SQLite error in get_identity_key_pair: " << e.what() << std::endl;
@@ -376,11 +459,11 @@ int storage::identity_key_store_is_trusted_identity(const signal_protocol_addres
     SQLite::Statement query(storage->db_, "SELECT public_key FROM identity_keys WHERE recipient_id = ?");
     query.bind(1, recipient_id);
     if (!query.executeStep()) {
-      return SG_SUCCESS; // New key, trust by default
+      return 1; // New key, trust by default
     }
     std::string stored_key = query.getColumn(0).getString();
     if (stored_key == std::string(reinterpret_cast<char*>(key_data), key_len)) {
-      return SG_SUCCESS;
+      return 1;
     }
     return SG_ERR_INVALID_KEY; // Key mismatch
   } catch (const SQLite::Exception& e) {
@@ -514,31 +597,63 @@ int storage::session_store_load_session(signal_buffer **record, signal_buffer **
   auto* storage = static_cast<class storage*>(user_data);
   try {
     std::string recipient_id(address->name, address->name_len);
-    SQLite::Statement query(storage->db_, "SELECT session_record FROM sessions WHERE recipient_id = ?");
-    query.bind(1, recipient_id);
-    if (!query.executeStep()) return SG_ERR_INVALID_KEY_ID;
-    std::string session_record = query.getColumn(0).getString();
-    *record = signal_buffer_create(reinterpret_cast<const uint8_t*>(session_record.data()), session_record.size());
-    return SG_SUCCESS;
+//    SQLite::Statement query(storage->db_, "SELECT session_record FROM sessions WHERE recipient_id = ?");
+//    query.bind(1, recipient_id);
+//    if (!query.executeStep()) {
+//      std::cerr << "No session found for " << recipient_id << std::endl;
+//      *record = nullptr;
+//      return 0;
+//    }
+//    std::string session_data = query.getColumn(0).getString();
+    if (const auto it = sessions_.find(recipient_id); it != sessions_.end())
+    {
+      auto session_data = it->second.record;
+      *record = signal_buffer_create(reinterpret_cast<const uint8_t*>(session_data.data()), session_data.size());
+
+      std::cerr << "Loading session for " << recipient_id << " (len=" << session_data.size() << "): ";
+      for (size_t i = 0; i < std::min(session_data.size(), (size_t)16); ++i) {
+        std::cerr << std::hex << (int)(uint8_t)session_data[i] << " ";
+      }
+      std::cerr << std::dec << std::endl;
+
+      if (!*record) {
+        return SG_ERR_NOMEM;
+      }
+      if (user_record) {
+        *user_record = nullptr;
+      }
+      std::cerr << "Loaded session for " << recipient_id << std::endl;
+      return 1; // Found session
+    }
+    return 0;
   } catch (const SQLite::Exception& e) {
     std::cerr << "SQLite error in load_session: " << e.what() << std::endl;
-    return SG_ERR_INVALID_KEY_ID;
+    return SG_ERR_UNKNOWN;
   }
-  return SG_SUCCESS;
 }
 
 int storage::session_store_store_session(const signal_protocol_address *address, uint8_t *record, size_t record_len, uint8_t *user_record, size_t user_record_len, void *user_data)
 {
+
   auto* storage = static_cast<class storage*>(user_data);
   try {
     std::string recipient_id(address->name, address->name_len);
-    SQLite::Statement insert(storage->db_, "INSERT OR REPLACE INTO sessions (recipient_id, session_record) VALUES (?, ?)");
-    insert.bind(1, recipient_id);
-    insert.bind(2, std::string(reinterpret_cast<char*>(record), record_len));
-    insert.exec();
+    std::string session_data(reinterpret_cast<char*>(record), record_len);
+    std::cerr << "Storing session for " << recipient_id << " (len=" << record_len << "): ";
+    for (size_t i = 0; i < std::min(record_len, (size_t)16); ++i) { // Limit for brevity
+      std::cerr << std::hex << (int)record[i] << " ";
+    }
+    std::cerr << std::dec << std::endl;
+
+//    SQLite::Statement insert(storage->db_, "INSERT OR REPLACE INTO sessions (recipient_id, session_record) VALUES (?, ?)");
+//    insert.bind(1, recipient_id);
+//    insert.bind(2, std::string(reinterpret_cast<char*>(record), record_len));
+//    insert.exec();
+    sessions_.insert_or_assign(recipient_id, session_t{.record = session_data});
     return SG_SUCCESS;
-  } catch (const SQLite::Exception& e) {
-    std::cerr << "SQLite error in store_session: " << e.what() << std::endl;
+  } catch (const std::exception e) {
+ //   std::cerr << "SQLite error in store_session: " << e.what() << std::endl;
+    std::cerr << "Error in store_session: " << e.what() << std::endl;
     return SG_ERR_UNKNOWN;
   }
   return SG_SUCCESS;
