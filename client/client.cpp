@@ -169,9 +169,10 @@ void client::handle_server_message(const json& message)
       return;
     }
 
-    auto bundle = user_key_bundle{.key = {decoded_key, decoded_key + crypto_secretbox_KEYBYTES }};
-    if (!bundle.key.empty())
-      user_bundles_.insert_or_assign(message.value("username", ""), bundle);
+    const auto user   = message.value("username", "");
+    const auto bundle = user_key_bundle{.key = {decoded_key, decoded_key + crypto_secretbox_KEYBYTES }};
+    if (!bundle.key.empty() && user != username_)
+      user_bundles_.insert_or_assign(user, bundle);
   }
 }
 //-------------------------------------
@@ -179,6 +180,9 @@ void client::send_message(const std::string& recipient, const std::string& messa
 {
   for (const auto& info : user_bundles_)
   {
+    if (info.first == username_)
+      continue;
+
     const auto        encrypted        = encrypt_message(info.first, 1, message);
     const auto        nonce            = reinterpret_cast<const unsigned char*>(encrypted.nonce.data());
     const auto&       ciphertext       = encrypted.cipher_text;
