@@ -29,11 +29,8 @@ bool database::register_user(const std::string& username, const user_key_bundle&
   try {
       SQLite::Statement query(db_, "SELECT username FROM users WHERE username = ?");
       query.bind(1, username);
-      if (query.executeStep()) {
-        // User exists
-          std::cout << "User " << username << " already exists" << std::endl;
-      return true;
-    }
+      if (query.executeStep())
+        std::cout << "User " << username << " already exists" << std::endl;
 
     SQLite::Statement insert_user(db_, "INSERT OR REPLACE INTO users "
                                        "(username, key)"
