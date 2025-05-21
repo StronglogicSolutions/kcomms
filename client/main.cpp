@@ -9,15 +9,17 @@ int main(int argc, char* argv[])
     return 1;
   }
 
+
+  if (sodium_init() < 0) {
+    std::cerr << "Failed to initialize libsodium" << std::endl;
+    return 1;
+  }
+
+
   try {
     boost::asio::io_context io_context;
     client c(io_context, argv[1], argv[2], argv[3], "client_" + std::string(argv[3]) + ".db");
     c.start();
-
-    // Example commands (for testing)
-    c.send_message("bob", "Hello, Bob!");
-    c.create_group("group:123", "MyGroup");
-    c.join_group("group:123");
 
     io_context.run();
   } catch (const std::exception& e) {

@@ -1,17 +1,14 @@
 #include "database.hpp"
+#include "SQLiteCpp/Exception.h"
 #include <iostream>
+#include <unistd.h>
 
 database::database(const std::string& db_path)
   : db_(db_path, SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE)
 {
   db_.exec("CREATE TABLE IF NOT EXISTS users ("
            "username TEXT PRIMARY KEY,"
-           "identity_key TEXT,"
-           "signed_pre_key TEXT)");
-  db_.exec("CREATE TABLE IF NOT EXISTS one_time_pre_keys ("
-           "username TEXT,"
-           "pre_key TEXT,"
-           "FOREIGN KEY(username) REFERENCES users(username))");
+           "key TEXT)");
   db_.exec("CREATE TABLE IF NOT EXISTS groups ("
            "group_id TEXT PRIMARY KEY,"
            "group_name TEXT)");
@@ -30,29 +27,18 @@ database::database(const std::string& db_path)
 bool database::register_user(const std::string& username, const user_key_bundle& key_bundle)
 {
   try {
-    SQLite::Statement query(db_, "SELECT username FROM users WHERE username = ?");
-    query.bind(1, username);
-    if (query.executeStep()) {
-      // User exists
-      std::cout << "User " << username << " already exists" << std::endl;
-      return true;
-    }
+      SQLite::Statement query(db_, "SELECT username FROM users WHERE username = ?");
+      query.bind(1, username);
+      if (query.executeStep())
+        std::cout << "User " << username << " already exists" << std::endl;
 
-    SQLite::Transaction transaction(db_);
-    SQLite::Statement insert_user(db_, "INSERT INTO users (username, identity_key, signed_pre_key) VALUES (?, ?, ?)");
+    SQLite::Statement insert_user(db_, "INSERT OR REPLACE INTO users "
+                                       "(username, key)"
+                                       "VALUES (?, ?)");
     insert_user.bind(1, username);
-    insert_user.bind(2, key_bundle.identity_key);
-    insert_user.bind(3, key_bundle.signed_pre_key);
+    insert_user.bind(2, key_bundle.key);
     insert_user.exec();
 
-    for (const auto& pre_key : key_bundle.one_time_pre_keys) {
-      SQLite::Statement insert_pre_key(db_, "INSERT INTO one_time_pre_keys (username, pre_key) VALUES (?, ?)");
-      insert_pre_key.bind(1, username);
-      insert_pre_key.bind(2, pre_key);
-      insert_pre_key.exec();
-    }
-
-    transaction.commit();
     return true;
   } catch (const SQLite::Exception& e) {
     std::cerr << "SQL Exception: " << e.what() << std::endl;
@@ -62,21 +48,20 @@ bool database::register_user(const std::string& username, const user_key_bundle&
 
 user_key_bundle database::get_user_key_bundle(const std::string& username)
 {
-  user_key_bundle bundle;
-  SQLite::Statement query_user(db_, "SELECT identity_key, signed_pre_key FROM users WHERE username = ?");
-  query_user.bind(1, username);
-  if (query_user.executeStep()) {
-    bundle.identity_key = query_user.getColumn(0).getString();
-    bundle.signed_pre_key = query_user.getColumn(1).getString();
-  }
-
-  SQLite::Statement query_pre_keys(db_, "SELECT pre_key FROM one_time_pre_keys WHERE username = ?");
-  query_pre_keys.bind(1, username);
-  while (query_pre_keys.executeStep()) {
-    bundle.one_time_pre_keys.push_back(query_pre_keys.getColumn(0).getString());
-  }
+  try {
+    user_key_bundle bundle;
+    SQLite::Statement query(db_, "SELECT key "
+                                 "FROM users WHERE username = ?");
+    query.bind(1, username);
+    if (query.executeStep())
+      bundle.key   = query.getColumn(0).getString();
 
   return bundle;
+
+  } catch (const SQLite::Exception& e) {
+    std::cerr <<"Failed to get user bundle: " << e.what() << std::endl;
+  }
+  return {};
 }
 
 bool database::create_group(const std::string& group_id, const std::string& group_name)
@@ -95,7 +80,7 @@ bool database::create_group(const std::string& group_id, const std::string& grou
 bool database::add_user_to_group(const std::string& group_id, const std::string& username)
 {
   try {
-    SQLite::Statement insert_member(db_, "INSERT INTO group_members (group_id, username) VALUES (?, ?)");
+    SQLite::Statement insert_member(db_, "INSERT OR REPLACE INTO group_members (group_id, username) VALUES (?, ?)");
     insert_member.bind(1, group_id);
     insert_member.bind(2, username);
     insert_member.exec();
@@ -142,3 +127,4 @@ std::vector<json> database::get_pending_messages(const std::string& username)
   delete_messages.exec();
   return messages;
 }
+

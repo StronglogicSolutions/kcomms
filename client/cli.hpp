@@ -14,9 +14,9 @@ public:
 private:
   void run();
 
-  client& client_;
+  client&     client_;
   std::string username_;
   std::thread thread_;
-  bool running_;
+  bool        running_;
 };
 

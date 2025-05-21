@@ -8,9 +8,7 @@
 using json = nlohmann::json;
 
 struct user_key_bundle {
-  std::string identity_key;
-  std::string signed_pre_key;
-  std::vector<std::string> one_time_pre_keys;
+  std::string key;
 };
 
 class database {
