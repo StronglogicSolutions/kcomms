@@ -132,47 +132,73 @@ void client::do_write(json message)
 //-------------------------------------
 void client::handle_server_message(const json& message)
 {
-//  std::cout << "server message:\n" << message.dump() << std::endl;
-  std::string type = message.value("type", "");
-  if (type == "register_response")
-  {
-    if (message.value("status", "") == "success")
-      std::cout << "Registered successfully as " << username_ << std::endl;
-    else
-      std::cerr << "Registration failed. Status: " << message.value("status", "") << std::endl;
-  }
-  else if (type == "messages_response")
-  {
-    for (const auto& msg : message["messages"])
-    {
-      const std::string sender     = msg.value("sender", "");
-      const std::string ciphertext = msg.value("content", "");
-      const std::string nonce      = msg.value("nonce", "");
-      const std::string plaintext  = decrypt_message(sender, 1, {ciphertext, nonce});
-      std::cout << sender << ": " << plaintext << std::endl;
-    }
-  }
-  else if (type == "create_group_response" || type == "join_group_response")
-  {
-    std::string status = message.value("status", "");
-    std::cout << type << ": " << status << std::endl;
-  }
-  else if (type == "key_bundle_response")
-  {
-    const auto base64_key_str = message.value("key", "");
-    unsigned char decoded_key[crypto_secretbox_KEYBYTES];
-    size_t bin_len;
-    if (sodium_base642bin(decoded_key, crypto_secretbox_KEYBYTES,
-                          base64_key_str.c_str(), base64_key_str.size(),
-                          nullptr, &bin_len, nullptr, sodium_base64_VARIANT_ORIGINAL) != 0) {
-      std::cerr << "Base64 decoding of key failed. FAILD to get user key" << std::endl;
-      return;
-    }
+  static const uint8_t REGISTER_TYPE = 0x00;
+  static const uint8_t CREATE_G_TYPE = 0x01;
+  static const uint8_t JOIN_E_G_TYPE = 0x02;
+  static const uint8_t KEY_BUND_TYPE = 0x03;
+  static const uint8_t MSG_RESP_TYPE = 0x04;
+  static const uint8_t SEND_RESPTYPE = 0x05;
+  static std::map<std::string, uint8_t> handler_map = {
+    { "register_response",     REGISTER_TYPE },
+    { "create_group_response", CREATE_G_TYPE },
+    { "join_group_response",   JOIN_E_G_TYPE },
+    { "key_bundle_response",   KEY_BUND_TYPE },
+    { "messages_response",     MSG_RESP_TYPE },
+    { "send_message_response", SEND_RESPTYPE }};
 
-    const auto user   = message.value("username", "");
-    const auto bundle = user_key_bundle{.key = {decoded_key, decoded_key + crypto_secretbox_KEYBYTES }};
-    if (!bundle.key.empty() && user != username_)
-      user_bundles_.insert_or_assign(user, bundle);
+  const auto type = message.value("type", "");
+  const auto it   = handler_map.find(type);
+  if (it == handler_map.end())
+  {
+    std::cout << std::endl << "Unknown type! " << type << '\n' << username_ << '>' << std::flush;
+    return;
+  }
+//  std::cout << "server message:\n" << message.dump() << std::endl;
+
+  switch (it->second)
+  {
+    case (REGISTER_TYPE):
+      if (message.value("status", "") == "success")
+        std::cout << "Registered successfully as " << username_ << std::endl;
+      else
+        std::cerr << "Registration failed. Status: " << message.value("status", "") << std::endl;
+    break;
+    case (CREATE_G_TYPE):
+    case (JOIN_E_G_TYPE):
+      std::cout << type << ": " << message.value("status", "") << std::endl;
+    break;
+    case (KEY_BUND_TYPE):
+    {
+      const auto base64_key_str = message.value("key", "");
+      unsigned char decoded_key[crypto_secretbox_KEYBYTES];
+      size_t bin_len;
+      if (sodium_base642bin(decoded_key, crypto_secretbox_KEYBYTES,
+                            base64_key_str.c_str(), base64_key_str.size(),
+                            nullptr, &bin_len, nullptr, sodium_base64_VARIANT_ORIGINAL) != 0) {
+        std::cerr << "Base64 decoding of key failed. FAILED to get user key" << std::endl;
+        return;
+      }
+
+      const auto user   = message.value("username", "");
+      const auto bundle = user_key_bundle{.key = {decoded_key, decoded_key + crypto_secretbox_KEYBYTES }};
+      if (!bundle.key.empty() && user != username_)
+        user_bundles_.insert_or_assign(user, bundle);
+    }
+    break;
+    case (MSG_RESP_TYPE):
+      for (const auto& msg : message["messages"])
+      {
+        const std::string sender     = msg.value("sender", "");
+        const std::string ciphertext = msg.value("content", "");
+        const std::string nonce      = msg.value("nonce", "");
+        const std::string plaintext  = decrypt_message(sender, 1, {ciphertext, nonce});
+        std::cout << std::endl << sender << ": " << plaintext << '\n' << username_ << '>' << std::flush;
+      }
+    break;
+    case (SEND_RESPTYPE):
+    default:
+      (void)"No-Op";
+    break;
   }
 }
 //-------------------------------------
