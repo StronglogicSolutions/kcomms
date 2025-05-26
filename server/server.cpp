@@ -158,6 +158,7 @@ void client_session::handle_message(json&& data)
       const auto group_id = message.value("group_id", "");
       if (db_.add_user_to_group(group_id, username_))
       {
+        klog().i("{} joined {}", username_, group_id);
         send_message({{"type", "join_group_response"}, {"status", "success"}});
         for (const auto& member : db_.get_group_members("group:default"))
           send_message(get_user_bundle(member));
@@ -234,10 +235,12 @@ void server::on_member_join(const std::string& new_name, client_session *client,
 
   for (const auto& [name, client_session_ptr] : clients_)
   {
-    if (client_session_ptr.get() == client)
+    if ((client_session_ptr.get() == client) || (name == new_name))
       old_key = name;
     else if (name != new_name)
       client_session_ptr->send_message(message);
+    else
+      old_key = name;
   }
 
   if (!old_key.empty())
