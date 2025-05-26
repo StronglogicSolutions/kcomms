@@ -20,7 +20,7 @@ get_time()
 client::client(boost::asio::io_context& io_context, const std::string& host, const std::string& port,
                const std::string& username, const std::string& db_path)
   : io_context_(io_context),
-    socket_(io_context),
+    socket_(io_context, ssl_context_),
     host_(host),
     port_(port),
     username_(username),
@@ -28,13 +28,17 @@ client::client(boost::asio::io_context& io_context, const std::string& host, con
     poll_timer_(io_context)
 {
   init();
+
+  ssl_context_.set_verify_mode(boost::asio::ssl::verify_none); // Adjust for production
+
   tcp::resolver resolver(io_context_);
   auto          endpoints = resolver.resolve(host, port);
-  boost::asio::async_connect(socket_, endpoints,
+  boost::asio::async_connect(socket_.lowest_layer(), endpoints,
     [this](boost::system::error_code ec, const tcp::endpoint&)
     {
       if (!ec)
       {
+        socket_.handshake(boost::asio::ssl::stream_base::client);
         start();
         do_connect();
         create_group("group:default", "DefaultChat");
