@@ -1,6 +1,7 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
 #include <nlohmann/json.hpp>
 #include <memory>
 #include <string>
@@ -49,9 +50,11 @@ private:
   user_key_bundle fetch_key_bundle(const std::string& recipient_id);
 
   using user_bundles_t = std::map<std::string, user_key_bundle>;
+  using socket_t       = boost::asio::ssl::stream<tcp::socket>;
 
   boost::asio::io_context&       io_context_;
-  tcp::socket                    socket_;
+  boost::asio::ssl::context      ssl_context_{boost::asio::ssl::context::tlsv12_client};
+  socket_t                       socket_;
   std::string                    host_;
   std::string                    port_;
   std::string                    username_;
