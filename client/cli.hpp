@@ -2,6 +2,9 @@
 #include <thread>
 #include <string>
 
+std::string
+get_time();
+
 class client;  // Forward declaration
 
 class cli {
