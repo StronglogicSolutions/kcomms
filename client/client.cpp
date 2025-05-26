@@ -4,18 +4,6 @@
 #include <openssl/evp.h>
 #include <sodium/crypto_secretbox.h>
 #include <stdexcept>
-#include <iomanip>
-#include <ctime>
-
-static std::string
-get_time()
-{
-  const auto         now  = std::time(nullptr);
-  const std::tm*     time = std::localtime(&now);
-  std::ostringstream oss;
-  oss << std::put_time(time, "%Y/%m/%d %H:%M:%S");
-  return oss.str();
-}
 
 client::client(boost::asio::io_context& io_context, const std::string& host, const std::string& port,
                const std::string& username, const std::string& db_path)

@@ -1,6 +1,18 @@
 #include "cli.hpp"
 #include "client.hpp"
 #include <iostream>
+#include <iomanip>
+#include <ctime>
+
+std::string
+get_time()
+{
+  const auto         now  = std::time(nullptr);
+  const std::tm*     time = std::localtime(&now);
+  std::ostringstream oss;
+  oss << std::put_time(time, "%Y/%m/%d %H:%M:%S");
+  return oss.str();
+}
 
 cli::cli(client& client_instance, const std::string& username)
 : client_(client_instance),
@@ -38,7 +50,7 @@ void cli::run()
   std::string input;
   while (running_)
   {
-    std::cout << username_ << "> ";
+    std::cout << get_time() << " - " << username_ << "> ";
     std::getline(std::cin, input);
     if (!running_)
       break;
