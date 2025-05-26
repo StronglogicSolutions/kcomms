@@ -23,6 +23,7 @@ client::client(boost::asio::io_context& io_context, const std::string& host, con
     {
       if (!ec)
       {
+        start();
         do_connect();
         create_group("group:default", "DefaultChat");
         join_group  ("group:default");

@@ -19,7 +19,6 @@ int main(int argc, char* argv[])
   try {
     boost::asio::io_context io_context;
     client c(io_context, argv[1], argv[2], argv[3], "client_" + std::string(argv[3]) + ".db");
-    c.start();
 
     io_context.run();
   } catch (const std::exception& e) {
