@@ -143,14 +143,18 @@ void client::handle_server_message(const json& message)
   static const uint8_t KEY_BUND_TYPE = 0x03;
   static const uint8_t MSG_RESP_TYPE = 0x04;
   static const uint8_t SEND_RESPTYPE = 0x05;
+  static const uint8_t USER_RESPTYPE = 0x06;
+
   static std::map<std::string, uint8_t> handler_map = {
     { "register_response",     REGISTER_TYPE },
     { "create_group_response", CREATE_G_TYPE },
     { "join_group_response",   JOIN_E_G_TYPE },
     { "key_bundle_response",   KEY_BUND_TYPE },
     { "messages_response",     MSG_RESP_TYPE },
-    { "send_message_response", SEND_RESPTYPE }};
+    { "send_message_response", SEND_RESPTYPE },
+    { "users_response",        USER_RESPTYPE }};
 
+  //std::cout << "Received server message: " << message.dump() << std::endl;
   const auto type = message.value("type", "");
   const auto it   = handler_map.find(type);
   if (it == handler_map.end())
@@ -158,7 +162,6 @@ void client::handle_server_message(const json& message)
     std::cout << std::endl << "Unknown type! " << type << '\n' << username_ << "> " << std::flush;
     return;
   }
-//  std::cout << "server message:\n" << message.dump() << std::endl;
 
   switch (it->second)
   {
@@ -201,6 +204,9 @@ void client::handle_server_message(const json& message)
         std::cout << std::endl << time << " - " << sender << ": " << plaintext << '\n' << time << " - " << username_ << "> " << std::flush;
       }
     break;
+    case (USER_RESPTYPE):
+      std::cout << std::endl << "Users: " << message["names"].dump() << '\n' << get_time() << " - " << username_ << "> " << std::flush;
+    break;
     case (SEND_RESPTYPE):
     default:
       (void)"No-Op";
@@ -210,6 +216,23 @@ void client::handle_server_message(const json& message)
 //-------------------------------------
 void client::send_message(const std::string& recipient, const std::string& message)
 {
+  if (message.empty())
+    return;
+
+  if (message.front() == '/') // command
+  {
+    std::cout << "handling command" << std::endl;
+
+    const json message_json{
+      {"type",      "command"       },
+      {"recipient", username_ },
+      {"sender",    username_       },
+      {"command",   message         }};
+
+    do_write(message_json);
+    return;
+  }
+
   for (const auto& info : user_bundles_)
   {
     if (info.first == username_)

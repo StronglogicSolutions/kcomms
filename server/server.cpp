@@ -1,5 +1,6 @@
 #include "server.hpp"
 #include "database.hpp"
+#include <cctype>
 #include <fmt/format.h>
 #include <string>
 //----------------------------------------------------------------
@@ -88,16 +89,24 @@ json bundle_to_json(const user_key_bundle& bundle, const std::string& name)
 void client_session::handle_message(json&& data)
 {
   const auto message = std::move(data);
-  auto get_user_bundle = [this](const auto name) -> json
+  auto get_user_bundle = [this](const auto& name) -> json
   {
     return bundle_to_json(db_.get_user_key_bundle(name), name);
   };
-
+  auto is_command = [](const auto& type) -> bool { return !type.empty() && type.front() == '/'; };
+  auto to_command = [](const std::string& type)         { return (type.substr(1));              };
   try
   {
 //    klog().t("Handling message:\n{}", message.dump());
     const auto type = message.value("type", "");
-    if (type == "register")
+    if (type == "command")
+    {
+      const auto& command = message.value("command", "");
+      klog().t("{} requested command: {}", username_, command);
+      if (command == "/who")
+        send_message({{"type", "users_response"}, {"names", server_ptr_->get_names()}});
+    }
+    else if (type == "register")
     {
       const auto      username = message.value("username", "");
       user_key_bundle bundle;
@@ -252,5 +261,14 @@ void server::on_member_join(const std::string& new_name, client_session *client,
       clients_.emplace(new_name, std::move(ptr));
     }
   }
+}
+//----------------------------------------------------------------
+std::vector<std::string> server::get_names() const
+{
+  std::vector<std::string> ret;
+  for (const auto& [name, _] : clients_)
+    if (!std::isdigit(name.front()))
+      ret.push_back(name);
+  return ret;
 }
 
