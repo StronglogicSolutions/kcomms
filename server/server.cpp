@@ -93,8 +93,7 @@ void client_session::handle_message(json&& data)
   {
     return bundle_to_json(db_.get_user_key_bundle(name), name);
   };
-  auto is_command = [](const auto& type) -> bool { return !type.empty() && type.front() == '/'; };
-  auto to_command = [](const std::string& type)         { return (type.substr(1));              };
+
   try
   {
 //    klog().t("Handling message:\n{}", message.dump());
