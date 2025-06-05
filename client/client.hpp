@@ -40,7 +40,6 @@ private:
   void        init();
   void        do_connect();
   void        do_read();
-  void        start_poll();
   void        do_poll();
   void        do_write(json message);
   void        disconnect();

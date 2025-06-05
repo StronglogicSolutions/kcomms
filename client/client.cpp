@@ -42,14 +42,9 @@ client::client(boost::asio::io_context& io_context, const std::string& host, con
 //-------------------------------------
 void client::start()
 {
-  cli_.start();
-  start_poll();
-  do_read();
-}
-//-------------------------------------
-void client::start_poll()
-{
   do_poll();
+  do_read();
+  cli_.start();
 }
 //-------------------------------------
 void client::do_poll()
@@ -105,12 +100,12 @@ void client::do_read()
       if (!ec)
       {
         std::istream is(&buffer_);
-        std::string message;
+        std::string  message;
         std::getline(is, message);
 
         try
         {
-          json parsed_message = json::parse(message);
+          const json parsed_message = json::parse(message);
           handle_server_message(parsed_message);
         }
         catch (const json::exception& e)
@@ -193,7 +188,7 @@ void client::handle_server_message(const json& message)
     break;
     case (CREATE_G_TYPE):
     case (JOIN_E_G_TYPE):
-      std::cout << type << ": " << message.value("status", "") << std::endl;
+      std::cout << type << ": " << message.value("status", "") << '\n' << username_ << "> " << std::flush;
     break;
     case (KEY_BUND_TYPE):
     {
