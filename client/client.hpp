@@ -30,7 +30,7 @@ public:
           const std::string& username);
 
   void start();
-  void send_message(const std::string& recipient, const std::string& message);
+  void send_message(const std::string& message);
   void create_group(const std::string& group_id, const std::string& group_name);
   void join_group  (const std::string& group_id);
 

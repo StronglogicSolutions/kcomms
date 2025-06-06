@@ -20,6 +20,7 @@ int main(int argc, char* argv[])
   {
     while (true)
     {
+      std::cout << "Creating new IO context" << std::endl;
       boost::asio::io_context io_context;
       client                  c(io_context, argv[1], argv[2], argv[3]);
       io_context.run();

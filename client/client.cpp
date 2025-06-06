@@ -146,6 +146,8 @@ void client::do_write(json message)
         else
           std::cout << "SSL socket shutdown complete. " << std::endl;
         }
+
+        cli_.stop();
       }
     });
 }
@@ -229,7 +231,7 @@ void client::handle_server_message(const json& message)
   }
 }
 //-------------------------------------
-void client::send_message(const std::string& recipient, const std::string& message)
+void client::send_message(const std::string& message)
 {
   if (message.empty())
     return;
