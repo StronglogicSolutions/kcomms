@@ -18,6 +18,7 @@ client_session::~client_session()
   run_queue_ = false;
   if (worker_.valid())
     worker_.wait();
+  server_ptr_->on_close(this);
 }
 //----------------------------------------------------------------
 void client_session::start()
@@ -45,9 +46,8 @@ void client_session::handle_queue()
 //----------------------------------------------------------------
 void client_session::do_read()
 {
-  auto self(shared_from_this());
   boost::asio::async_read_until(socket_, read_buffer_, '\n',
-    [this, self](boost::system::error_code ec, std::size_t)
+    [this](boost::system::error_code ec, std::size_t)
     {
       if (!ec)
       {
@@ -71,7 +71,12 @@ void client_session::do_read()
         do_read();
       }
       else
+      {
         klog().e("We had an error: {}", ec.message());
+        run_queue_ = false;
+        socket_.close();
+        server_ptr_->on_close(this);
+      }
     });
 }
 //----------------------------------------------------------------
@@ -269,5 +274,16 @@ std::vector<std::string> server::get_names() const
     if (!std::isdigit(name.front()))
       ret.push_back(name);
   return ret;
+}
+//----------------------------------------------------------------
+void server::on_close(client_session *ptr)
+{
+  for (auto it = clients_.begin(); it != clients_.end();)
+  {
+    if (it->second.get() == ptr)
+      it = clients_.erase(it);
+    else
+      it++;
+  }
 }
 

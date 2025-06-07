@@ -72,6 +72,7 @@ public:
   std::vector<json> get_pending_messages(const std::string& username);
   void on_member_join(const std::string& name, client_session *client, const json& message);
   std::vector<std::string> get_names() const;
+  void on_close(client_session *ptr);
 
 private:
   void do_accept();

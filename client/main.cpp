@@ -18,10 +18,13 @@ int main(int argc, char* argv[])
 
   try
   {
-    boost::asio::io_context io_context;
-    client c(io_context, argv[1], argv[2], argv[3], "client_" + std::string(argv[3]) + ".db");
-
-    io_context.run();
+    while (true)
+    {
+      std::cout << "Creating new IO context" << std::endl;
+      boost::asio::io_context io_context;
+      client                  c(io_context, argv[1], argv[2], argv[3]);
+      io_context.run();
+    }
   } catch (const std::exception& e) {
     std::cerr << "Exception: " << e.what() << std::endl;
   }
