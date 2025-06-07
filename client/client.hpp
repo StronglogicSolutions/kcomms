@@ -27,10 +27,10 @@ extern std::vector<uint8_t> base64_decode(const std::string& input);
 class client : public std::enable_shared_from_this<client> {
 public:
   client (boost::asio::io_context& io_context, const std::string& host, const std::string& port,
-          const std::string& username, const std::string& db_path);
+          const std::string& username);
 
   void start();
-  void send_message(const std::string& recipient, const std::string& message);
+  void send_message(const std::string& message);
   void create_group(const std::string& group_id, const std::string& group_name);
   void join_group  (const std::string& group_id);
 
@@ -40,9 +40,9 @@ private:
   void        init();
   void        do_connect();
   void        do_read();
-  void        start_poll();
   void        do_poll();
   void        do_write(json message);
+  void        disconnect();
   void        handle_server_message(const json& message);
   encrypt_struct_t encrypt_message(const std::string& recipient, int device_id, const std::string& message);
   std::string decrypt_message(const std::string& sender, int device_id, const encrypt_struct_t& encrypted);
@@ -65,4 +65,5 @@ private:
   user_key_bundle                key_bundle_;
   user_bundles_t                 user_bundles_;
   std::vector<std::string>       received_;
+  bool                           active_{true};
 };

@@ -1,4 +1,5 @@
 #include "client.hpp"
+#include <boost/core/ignore_unused.hpp>
 #include <iostream>
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
@@ -6,7 +7,7 @@
 #include <stdexcept>
 
 client::client(boost::asio::io_context& io_context, const std::string& host, const std::string& port,
-               const std::string& username, const std::string& db_path)
+               const std::string& username)
   : io_context_(io_context),
     socket_(io_context, ssl_context_),
     host_(host),
@@ -41,14 +42,9 @@ client::client(boost::asio::io_context& io_context, const std::string& host, con
 //-------------------------------------
 void client::start()
 {
-  cli_.start();
-  start_poll();
-  do_read();
-}
-//-------------------------------------
-void client::start_poll()
-{
   do_poll();
+  do_read();
+  cli_.start();
 }
 //-------------------------------------
 void client::do_poll()
@@ -59,7 +55,7 @@ void client::do_poll()
   poll_timer_.expires_after(std::chrono::seconds(1));
   poll_timer_.async_wait([this](boost::system::error_code ec)
   {
-    if (!ec)
+    if (!ec && active_)
       do_poll();
     else
       std::cerr << "Poll error: " << ec.message() << std::endl;
@@ -104,12 +100,12 @@ void client::do_read()
       if (!ec)
       {
         std::istream is(&buffer_);
-        std::string message;
+        std::string  message;
         std::getline(is, message);
 
         try
         {
-          json parsed_message = json::parse(message);
+          const json parsed_message = json::parse(message);
           handle_server_message(parsed_message);
         }
         catch (const json::exception& e)
@@ -124,6 +120,7 @@ void client::do_read()
     });
 }
 //-------------------------------------
+#define DISCARD_RET(x) boost::ignore_unused(x)
 void client::do_write(json message)
 {
   received_.push_back(message.dump() + "\n");
@@ -131,7 +128,27 @@ void client::do_write(json message)
     [this](boost::system::error_code ec, std::size_t)
     {
       if (ec)
+      {
         std::cerr << "Write error: " << ec.message() << std::endl;
+        std::cerr << "Shutting down connection"      << std::endl;
+
+        active_ = false;
+
+        boost::system::error_code shutdown_ec;
+        DISCARD_RET(socket_.shutdown(shutdown_ec));
+
+        if (!shutdown_ec)
+        {
+          DISCARD_RET(socket_.lowest_layer().close(shutdown_ec));
+
+        if (shutdown_ec)
+          std::cerr << "Socket close error: " << shutdown_ec.message() << std::endl;
+        else
+          std::cout << "SSL socket shutdown complete. " << std::endl;
+        }
+
+        cli_.stop();
+      }
     });
 }
 //-------------------------------------
@@ -173,7 +190,7 @@ void client::handle_server_message(const json& message)
     break;
     case (CREATE_G_TYPE):
     case (JOIN_E_G_TYPE):
-      std::cout << type << ": " << message.value("status", "") << std::endl;
+      std::cout << type << ": " << message.value("status", "") << '\n' << username_ << "> " << std::flush;
     break;
     case (KEY_BUND_TYPE):
     {
@@ -214,7 +231,7 @@ void client::handle_server_message(const json& message)
   }
 }
 //-------------------------------------
-void client::send_message(const std::string& recipient, const std::string& message)
+void client::send_message(const std::string& message)
 {
   if (message.empty())
     return;
