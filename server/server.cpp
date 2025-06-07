@@ -18,6 +18,7 @@ client_session::~client_session()
   run_queue_ = false;
   if (worker_.valid())
     worker_.wait();
+  server_ptr_->on_close(this);
 }
 //----------------------------------------------------------------
 void client_session::start()
@@ -269,5 +270,16 @@ std::vector<std::string> server::get_names() const
     if (!std::isdigit(name.front()))
       ret.push_back(name);
   return ret;
+}
+//----------------------------------------------------------------
+void server::on_close(client_session *ptr)
+{
+  for (auto it = clients_.begin(); it != clients_.end();)
+  {
+    if (it->second.get() == ptr)
+      it = clients_.erase(it);
+    else
+      it++;
+  }
 }
 
