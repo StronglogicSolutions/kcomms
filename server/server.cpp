@@ -72,7 +72,10 @@ void client_session::do_read()
         do_read();
       }
       else
+      {
         klog().e("We had an error: {}", ec.message());
+        socket_.close();
+      }
     });
 }
 //----------------------------------------------------------------
