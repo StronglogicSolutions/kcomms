@@ -74,6 +74,7 @@ void client_session::do_read()
       else
       {
         klog().e("We had an error: {}", ec.message());
+        run_queue_ = false;
         socket_.close();
       }
     });
