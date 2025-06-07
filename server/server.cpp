@@ -46,9 +46,8 @@ void client_session::handle_queue()
 //----------------------------------------------------------------
 void client_session::do_read()
 {
-  auto self(shared_from_this());
   boost::asio::async_read_until(socket_, read_buffer_, '\n',
-    [this, self](boost::system::error_code ec, std::size_t)
+    [this](boost::system::error_code ec, std::size_t)
     {
       if (!ec)
       {
@@ -76,6 +75,7 @@ void client_session::do_read()
         klog().e("We had an error: {}", ec.message());
         run_queue_ = false;
         socket_.close();
+        server_ptr_->on_close(this);
       }
     });
 }
