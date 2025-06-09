@@ -40,6 +40,7 @@ void cli::stop()
   if (running_)
   {
     running_ = false;
+
     if (thread_.joinable())
       thread_.join();
   }
@@ -56,6 +57,6 @@ void cli::run()
       break;
 
     if (!input.empty())
-      client_.send_message("group:default", input);
+      client_.send_message(input);
   }
 }
