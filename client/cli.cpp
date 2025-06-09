@@ -41,8 +41,6 @@ void cli::stop()
   {
     running_ = false;
 
-    std::cin.setstate(std::ios::eofbit);
-
     if (thread_.joinable())
       thread_.join();
   }
