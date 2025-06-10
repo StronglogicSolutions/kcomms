@@ -3,7 +3,8 @@
 #include <iostream>
 #include <iomanip>
 #include <ctime>
-
+//-----------------------------
+//-----------------------------
 std::string
 get_time()
 {
@@ -13,52 +14,54 @@ get_time()
   oss << std::put_time(time, "%Y/%m/%d %H:%M:%S");
   return oss.str();
 }
-
+//-----------------------------
+//-----------------------------
 cli::cli(client& client_instance, const std::string& username)
 : client_(client_instance),
   username_(username),
   running_(false)
 {
+  std::cin.clear();
 }
-
+//-----------------------------
 cli::~cli()
 {
   stop();
 }
-
+//-----------------------------
 void cli::start()
 {
   if (!running_)
   {
     running_ = true;
-    thread_ = std::thread(&cli::run, this);
+    thread_  = std::thread(&cli::run, this);
   }
 }
-
+//-----------------------------
 void cli::stop()
 {
   if (running_)
   {
     running_ = false;
 
-    std::cin.setstate(std::ios::eofbit);
-
     if (thread_.joinable())
       thread_.join();
   }
 }
-
+//-----------------------------
 void cli::run()
 {
   std::string input;
   while (running_)
   {
-    std::cout << get_time() << " - " << username_ << "> ";
-    std::getline(std::cin, input);
     if (!running_)
       break;
+
+    std::cout << get_time() << " - " << username_ << "> ";
+    std::getline(std::cin, input);
 
     if (!input.empty())
       client_.send_message(input);
   }
 }
+

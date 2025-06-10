@@ -1,4 +1,5 @@
 #include "client.hpp"
+#include "boost/asio/error.hpp"
 #include <boost/core/ignore_unused.hpp>
 #include <iostream>
 #include <openssl/hmac.h>
@@ -18,7 +19,7 @@ client::client(boost::asio::io_context& io_context, const std::string& host, con
 {
   init();
 
-  ssl_context_.set_verify_mode(boost::asio::ssl::verify_none); // Adjust for production
+//  ssl_context_.set_verify_mode(boost::asio::ssl::verify_none);
 
   tcp::resolver resolver(io_context_);
   auto          endpoints = resolver.resolve(host, port);
@@ -49,8 +50,7 @@ void client::start()
 //-------------------------------------
 void client::do_poll()
 {
-  json get_messages = {{"type", "get_messages"}};
-  do_write(get_messages);
+  do_write( {{ "type", "get_messages" }} );
 
   poll_timer_.expires_after(std::chrono::seconds(1));
   poll_timer_.async_wait([this](boost::system::error_code ec)
@@ -123,33 +123,62 @@ void client::do_read()
 #define DISCARD_RET(x) boost::ignore_unused(x)
 void client::do_write(json message)
 {
+  using err_t = boost::system::error_code;
   received_.push_back(message.dump() + "\n");
-  boost::asio::async_write(socket_, boost::asio::buffer(received_.back()),
-    [this](boost::system::error_code ec, std::size_t)
+  boost::asio::async_write(socket_, boost::asio::buffer(received_.back()), [this](err_t ec, std::size_t)
+  {
+    if (ec)
     {
-      if (ec)
+      std::cerr << "Write error: " << ec.message() << std::endl;
+      std::cerr << "Shutting down connection"      << std::endl;
+
+      cli_.stop();
+
+      active_ = false;
+
+      err_t shutdown_ec;
+      DISCARD_RET(socket_.lowest_layer().cancel(shutdown_ec));
+
+      if (shutdown_ec)
       {
-        std::cerr << "Write error: " << ec.message() << std::endl;
-        std::cerr << "Shutting down connection"      << std::endl;
+        std::cerr << "Failed to cancel pending socket operations" << std::endl;
 
-        active_ = false;
-
-        boost::system::error_code shutdown_ec;
-        DISCARD_RET(socket_.shutdown(shutdown_ec));
-
-        if (!shutdown_ec)
+        if (shutdown_ec == boost::asio::error::broken_pipe || shutdown_ec == boost::asio::error::connection_reset)
         {
           DISCARD_RET(socket_.lowest_layer().close(shutdown_ec));
 
-        if (shutdown_ec)
-          std::cerr << "Socket close error: " << shutdown_ec.message() << std::endl;
-        else
-          std::cout << "SSL socket shutdown complete. " << std::endl;
+          if (shutdown_ec)
+            std::cerr << "Socket close error: " << shutdown_ec.message() << std::endl;
+          else
+            std::cout << "Closed socket. " << std::endl;
         }
+        else
+        {
+          boost::asio::steady_timer timer(io_context_);
+          timer.expires_after(std::chrono::seconds(5));
+          timer.async_wait([&](const err_t& ec)
+          {
+            if (!ec)
+              std::cerr << "Error calling SSL stream shutdown over async: " << ec.message() << std::endl;
+            socket_.lowest_layer().close();
+          });
 
-        cli_.stop();
+          DISCARD_RET(socket_.shutdown(shutdown_ec));
+          timer.cancel();
+
+          if (shutdown_ec)
+            std::cerr << "Failed to shutdown SSL connection gracefully: " << shutdown_ec.message() << std::endl;
+
+          DISCARD_RET(socket_.lowest_layer().close(shutdown_ec));
+
+          if (shutdown_ec)
+            std::cerr << "Socket close error: " << shutdown_ec.message() << std::endl;
+          else
+            std::cout << "Closed socket." << std::endl;
+        }
       }
-    });
+    }
+  });
 }
 //-------------------------------------
 void client::handle_server_message(const json& message)
@@ -238,13 +267,11 @@ void client::send_message(const std::string& message)
 
   if (message.front() == '/') // command
   {
-    std::cout << "handling command" << std::endl;
-
     const json message_json{
-      {"type",      "command"       },
-      {"recipient", username_ },
-      {"sender",    username_       },
-      {"command",   message         }};
+      { "type",      "command" },
+      { "recipient", username_ },
+      { "sender",    username_ },
+      { "command",   message   }};
 
     do_write(message_json);
     return;
