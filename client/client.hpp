@@ -33,6 +33,7 @@ public:
   void send_message(const std::string& message);
   void create_group(const std::string& group_id, const std::string& group_name);
   void join_group  (const std::string& group_id);
+  void set_thread_id(pthread_t*);
 
 private:
   static void log_function(int level, const char* message, size_t length, void* user_data);
@@ -66,4 +67,8 @@ private:
   user_bundles_t                 user_bundles_;
   std::vector<std::string>       received_;
   bool                           active_{true};
+
+#ifndef _WIN32
+  pthread_t                     *cli_thread_id_ptr{nullptr};
+#endif
 };
