@@ -32,6 +32,7 @@ cli::cli(client& client_instance, const std::string& username)
 cli::~cli()
 {
   stop();
+
   if (thread_.joinable())
     thread_.join();
 }
