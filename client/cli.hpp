@@ -2,6 +2,10 @@
 #include <thread>
 #include <string>
 
+#ifndef _WIN32
+#include <pthread.h>
+#endif
+
 std::string
 get_time();
 
@@ -21,5 +25,10 @@ private:
   std::string username_;
   std::thread thread_;
   bool        running_;
+
+#ifndef _WIN32
+  pthread_t   thread_id_;
+#endif
+
 };
 

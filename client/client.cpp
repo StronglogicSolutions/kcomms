@@ -133,6 +133,10 @@ void client::do_write(json message)
       std::cerr << "Shutting down connection"      << std::endl;
 
       cli_.stop();
+#ifndef _WIN32
+      if (cli_thread_id_ptr)
+        pthread_kill(*cli_thread_id_ptr, SIGUSR1);
+#endif
 
       active_ = false;
 
@@ -396,5 +400,10 @@ std::string client::decrypt_message(const std::string& sender, int device_id, co
   }
 
   return {decrypted.begin(), decrypted.end()};
+}
+//-------------------------------------
+void client::set_thread_id(pthread_t *thread_id_ptr)
+{
+  cli_thread_id_ptr = thread_id_ptr;
 }
 
