@@ -205,6 +205,7 @@ void client::handle_server_message(const json& message)
     { "users_response",        USER_RESPTYPE }};
 
   //std::cout << "Received server message: " << message.dump() << std::endl;
+  const auto time = get_time();
   const auto type = message.value("type", "");
   const auto it   = handler_map.find(type);
   if (it == handler_map.end())
@@ -223,7 +224,8 @@ void client::handle_server_message(const json& message)
     break;
     case (CREATE_G_TYPE):
     case (JOIN_E_G_TYPE):
-      std::cout << type << ": " << message.value("status", "") << '\n' << username_ << "> " << std::flush;
+      std::cout << type << ": " << message.value("status", "") << '\n'
+                << time << " - " << username_ << "> " << std::flush;
     break;
     case (KEY_BUND_TYPE):
     {
@@ -250,12 +252,11 @@ void client::handle_server_message(const json& message)
         const std::string ciphertext = msg.value("content", "");
         const std::string nonce      = msg.value("nonce", "");
         const std::string plaintext  = decrypt_message(sender, 1, {ciphertext, nonce});
-        const std::string time       = get_time();
         std::cout << std::endl << time << " - " << sender << ": " << plaintext << '\n' << time << " - " << username_ << "> " << std::flush;
       }
     break;
     case (USER_RESPTYPE):
-      std::cout << std::endl << "Users: " << message["names"].dump() << '\n' << get_time() << " - " << username_ << "> " << std::flush;
+      std::cout << std::endl << "Users: " << message["names"].dump() << '\n' << time << " - " << username_ << "> " << std::flush;
     break;
     case (SEND_RESPTYPE):
     default:
@@ -402,8 +403,10 @@ std::string client::decrypt_message(const std::string& sender, int device_id, co
   return {decrypted.begin(), decrypted.end()};
 }
 //-------------------------------------
+#ifndef _WIN32
 void client::set_thread_id(pthread_t *thread_id_ptr)
 {
   cli_thread_id_ptr = thread_id_ptr;
 }
+#endif
 
