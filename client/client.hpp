@@ -8,6 +8,12 @@
 #include <vector>
 #include "cli.hpp"
 #include <sodium.h>
+#include <map>
+
+using config_t = std::map<std::string, std::string>;
+
+extern config_t
+get_config();
 
 struct user_key_bundle {
   std::string key;

@@ -1,12 +1,37 @@
 #include "client.hpp"
 #include "boost/asio/error.hpp"
 #include <boost/core/ignore_unused.hpp>
+#include <fstream>
 #include <iostream>
+#include <openssl/conf.h>
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
 #include <sodium/crypto_secretbox.h>
 #include <stdexcept>
+#include <sstream>
+#include <map>
 
+using config_t = std::map<std::string, std::string>;
+
+config_t
+get_config()
+{
+  std::stringstream ss;
+  std::ifstream read_file{".config"};
+  ss << read_file.rdbuf();
+  config_t ret;
+
+  auto data = ss.str();
+  for (auto i = data.find('\n'); i != data.npos;)
+  {
+    const auto entry = data.substr(0, i);
+    const auto div   = entry.find(':');
+    ret.insert_or_assign(std::string{entry.data(), entry.data() + div}, std::string{entry.data() + div + 1, entry.data() + entry.size()});
+    data = data.substr(i + 1);
+    i = data.find('\n');
+  }
+  return ret;
+}
 client::client(boost::asio::io_context& io_context, const std::string& host, const std::string& port,
                const std::string& username)
   : io_context_(io_context),
@@ -218,14 +243,14 @@ void client::handle_server_message(const json& message)
   {
     case (REGISTER_TYPE):
       if (message.value("status", "") == "success")
-        std::cout << "Registered successfully as " << username_ << std::endl;
+        std::cout << "\nRegistered successfully as " << username_ << std::endl;
       else
-        std::cerr << "Registration failed. Status: " << message.value("status", "") << std::endl;
+        std::cerr << "\nRegistration failed. Status: " << message.value("status", "") << std::endl;
     break;
     case (CREATE_G_TYPE):
     case (JOIN_E_G_TYPE):
-      std::cout << type << ": " << message.value("status", "") << '\n'
-                << time << " - " << username_ << "> " << std::flush;
+      std::cout << '\n' << type << ": "  << message.value("status", "") << '\n'
+                << '\n' << time << " - " << username_ << "> "           << std::flush;
     break;
     case (KEY_BUND_TYPE):
     {
