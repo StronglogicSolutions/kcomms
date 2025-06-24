@@ -8,6 +8,12 @@
 #include <vector>
 #include "cli.hpp"
 #include <sodium.h>
+#include <map>
+
+using config_t = std::map<std::string, std::string>;
+
+extern config_t
+get_config();
 
 struct user_key_bundle {
   std::string key;
@@ -33,7 +39,9 @@ public:
   void send_message(const std::string& message);
   void create_group(const std::string& group_id, const std::string& group_name);
   void join_group  (const std::string& group_id);
+#ifndef _WIN32
   void set_thread_id(pthread_t*);
+#endif
 
 private:
   static void log_function(int level, const char* message, size_t length, void* user_data);
